@@ -992,6 +992,23 @@ void writeFrame2log(struct uart_frame *frame)
 	fclose(fp);
 }
 
+static void getIDAndStationFromA2(u8 *ID, u8 *station)
+{
+	int len = g_ARR_A1[2];	//ID+station 的长度，目前ID固定为5个字节
+	int i;
+
+	//ID  5个字节   "12345"
+	for(i = 0; i < 5; i++){
+		ID[i] = g_ARR_A1[3 + i];
+	}
+	ID[i] = '\0';
+	//station
+	for(i = 0; i < len - 5; i++){
+		station[i] = g_ARR_A1[8 + i];
+	}
+	station[i] = '\0';
+}
+
 void *UARTMsgProcessor(void *arg)
 {
 	struct uart_frame *uart_frame = (struct uart_frame *)arg;
@@ -1022,9 +1039,8 @@ void *UARTMsgListener(void *arg)
 	struct uart_frame Recv_Frame;
 
 	u8 AS,SS;
-	u8 ID[] = {"12345"};
-	u8 station[] = {"TIANJINZHAN"};
-	
+	u8 ID[16];
+	u8 station[16];
 
 	while(1)
 	{
@@ -1038,6 +1054,8 @@ void *UARTMsgListener(void *arg)
 		}
 		g_HBtime.tv_sec = seconds;
     	g_HBtime.tv_usec = 0;
+
+		getIDAndStationFromA2(ID, station);
 		
 		ret = select(UART_Fd+1, &fd_read, NULL, NULL, &g_HBtime);
 		
