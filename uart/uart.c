@@ -963,9 +963,9 @@ void writeFrame2log(struct uart_frame *frame)
 	for(i = 0; i < 6; i++){
 		len += snprintf(filename + len, 64 - len, "%02x", g_mac[i]);
 	}
-	len += snprintf(filename + len, 64 - len, "%d", year);
-	len += snprintf(filename + len, 64 - len, "%d", mon);
-	len += snprintf(filename + len, 64 - len, "%d", day);
+	len += snprintf(filename + len, 64 - len, "%4d", year);
+	len += snprintf(filename + len, 64 - len, "%2d", mon);
+	len += snprintf(filename + len, 64 - len, "%2d", day);
 	len += snprintf(filename + len, 64 - len, "%s", ".log");
 	filename[len++] = '\0';
 	
