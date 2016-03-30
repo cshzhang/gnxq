@@ -22,6 +22,9 @@
 
 #include <uart.h>
 #include <util.h>
+#include<dirent.h>
+#define LOG_LEN 8
+#define DAT_LEN 14
 
 static pthread_t thread_uart;
 static pthread_t thread_uart_processor;
@@ -78,6 +81,15 @@ int isFileAckReceived = 0;
 int isFileAckTimeout = 0;
 
 int g_oreintation;
+
+
+char logname[LOG_LEN],minlog[255];
+char datname[DAT_LEN],mindat[255];
+double recvfile=0,searfile=0;
+char logpath[]="/etc/can_log";
+char datpath[]="/etc/can_data";
+double min=999999999999999;
+
 
 static void print_arr(u8 array[], int len)
 {
@@ -815,6 +827,9 @@ static void handle(struct uart_frame *frame, int uart_fd)
 	u8 data_len = frame->data_length;
 	u8 data[data_len];
 	
+	struct uart_frame fileframe;
+	u8 content[FRAME_DATA_LEN];
+	memset(content, 0xff, FRAME_DATA_LEN);
 	for(i = 0; i < data_len; i++)
 	{
 		data[i] = frame->data[i];
@@ -824,7 +839,7 @@ static void handle(struct uart_frame *frame, int uart_fd)
 	static char file_data[4096];			//这段内存在静态存储区
 	static char *pt_FileData = file_data;
 	static int totle_len = 0;
-	
+	int len=0;
 	char abs_path[64];
 
 	DBG_PRINTF("\nhandle()...\n");
@@ -881,20 +896,30 @@ static void handle(struct uart_frame *frame, int uart_fd)
 			break;
 		case FRAME_TYPE_FND_FILE:
 			//将查找到的文件，返回；
-			//帧写入日志文件
-
-
-			/*printf("data_len=%d\n",data_len);
-			printf("data=");
-			for(i=0;i<data_len;i++)
-				{
-					printf("%c",data[i]);
-				}
-			printf("\n");*/
+			//帧写入日志文件		
 			
-			findfile(data,data_len);
+			len=findfile(data);
 			printf("findfile success!\n");
-			//break;
+			putHeadInFrame(&fileframe, getSystemTimeInSecs(), 
+				FRAME_TYPE_FND_FILE, len, g_mac);
+			printf("data[%d]=%c\n",data_len-1,data[data_len-1]);
+			if('g'==data[data_len-1])
+				{
+					for(i=0;i<strlen(minlog);i++)
+						{
+						content[i]=minlog[i];
+						}
+				}
+			else{
+				for(i=0;i<strlen(mindat);i++)
+						{
+						content[i]=mindat[i];
+						}
+				}
+			putContentInFrame(&fileframe, content);
+			UART_Send(uart_fd, &fileframe);
+			//日志
+			writeFrame2log(&fileframe);
 			break;
 		case FRAME_TYPE_WR_FILE:
 			//得到文件名，存入一个全局变量 : g_filename
@@ -1124,6 +1149,8 @@ void startUARTMsgListener(int UART_Fd)
 	g_uart_fd = UART_Fd;
 	pthread_create(&thread_uart, NULL, &UARTMsgListener, (void *)UART_Fd);
 }
+
+
 int chartoint(int begin, int end,char c[14])
 {
 	int value=0,i=0;
@@ -1134,124 +1161,133 @@ int chartoint(int begin, int end,char c[14])
 	return value;
 }
 
-int filenametosecond(char t[FILENAME_LEN], int data_len)
+double filenametosecond(char t[14],int data_len)
 {
 	struct tm ti;
 	ti.tm_year=chartoint(0,4,t)-1900;
 	ti.tm_mon=chartoint(4,6,t);
 	ti.tm_mday=chartoint(6,8,t);
-	if(data_len>8)
+	ti.tm_hour=0;
+	ti.tm_min=0;
+	ti.tm_sec=0;
+	if(data_len>LOG_LEN)
+	{
+		ti.tm_hour=chartoint(8,10,t);
+		ti.tm_min=chartoint(10,12,t);
+		ti.tm_sec=chartoint(12,14,t);
+		//return mktime(&ti)-2649600;
+	}
+	return mktime(&ti)-2649600;
+}
+void getfilename(char name[255],int data_len)
+{
+	int i=0,j=0;
+	for(i=0;i<strlen(name);i++)
 		{
-	ti.tm_hour=chartoint(8,10,t);
-	
-			ti.tm_min=chartoint(10,12,t);
-			ti.tm_sec=chartoint(12,14,t);
-			return mktime(&ti)-2649600;
+			if('.'==name[i])
+				{
+					break;	
+				}
 		}
+printf(".=%d\n",i);
+	if('l'==name[i+1])
+	{
+		for(j=0;j<data_len;j++)
+			{
+			 logname[j]=name[i-data_len+j];
+			}
+	}
 	else{
-		return mktime(&ti);
+			for(j=0;j<data_len;j++)
+			{
+			 	datname[j]=name[i-data_len+j];
+			}
 	}
 }
-
-void findfile(char start[FILENAME_LEN],int data_len)
+void readfilename(char path[12],char goal[4])
 {
-	char temp[200],tempdeal[data_len+1];
-	//char start[]="19700101000000.log";
-	FILE *fp;
-	int er=0,i=0;
-	//printf("11111111111\n");
-	/*for(i=0;i<data_len-4;i++)
-		{
-			printf("%d\n",i);
-			if(start[i]<'0'||start[i]>'9')
-				{
-					er=1;
-				}
-		}
-	//printf("22222222\n");
-	if(start[data_len-4]!='.')
-		{
-			er=1;
-		}
-	//printf("333333333\n");
-	if('l'!=start[data_len-3]&&'d'!=start[data_len-3])
-		{
-			er=1;	
-		}
-	else{
-			if('o'!=start[data_len-2]&&'a'!=start[data_len-2])
-				{
-					er=1;	
-				}
-			else{
-					if('g'!=start[data_len-1]&&'t'!=start[data_len-1])
-						{
-							er=1;	
-						}
-				}
-		}*/
-	//printf("44444444444\n");
-	//if(0==er)
-	{
-		if('t'==start[data_len-1])//dat
-		{
-		//printf("555555555555555\n");
-			system("cd find /etc/can_log/ -name *.dat>search.c");		
-		}
-		else
-		{
-		//printf("66666666666666\n");
-			system("find /etc/can_log/ -name *.log>search.c");		
-		}
-		//printf("77777777771\n");
-		if((fp=fopen("search.c","rb+"))==NULL)
-				{
-					perror("fopen");
-				}
-			int min=9999999,j=0;
-			char minfilename[data_len+1];
-			int recvfile=0,searfile=0;
-			//printf("88888888\n");
-			recvfile=filenametosecond(start,data_len);
-			printf("filenamesecond success!\n");
-			while(fgets(temp,200,fp))
-				{			//printf("temp:%s\n",temp);
-				for(i=0;i<strlen(temp);i++)
-						{
-							if('.'==temp[i])
-								{
-//printf("i=%d\n",i);
-								break;
-								}
-						}
-								for(j=0;j<data_len;j++)
-								{
-
-								tempdeal[j]=temp[j+i-data_len+4];
-								}
-				tempdeal[j]='\0';
-				//printf("9999999999\n");
-						/*int i=0;
-						for(i=0;i<data_len-4;i++)
-						{
-							tempdeal[i]=temp[i+13];
-						}*/
-						//printf("aaaaaaaaaaaaaa\n");
-						searfile=filenametosecond(tempdeal,data_len);
-						printf("filenametosecond success!\n");
-						if(fabs(recvfile-searfile)<=min)
-						{
-							min=(int)fabs(recvfile-searfile);		
-							for(i=0;i<FILENAME_LEN+1;i++)
-								{
-									minfilename[i]=tempdeal[i];
-								}				
-						}	
-				}
-			fclose(fp);
-				printf("lasted:%s\n",minfilename);
-		}
-		/*else{
-				printf("recevive filename error!\n");
-			}	*/
+	struct dirent *dp;
+ 	DIR   *dfd;
+ 	if( (dfd = opendir(path)) == NULL )
+	   {
+	          printf("open dir failed! dir: %s", path);
+	          return;
+	     }
+if('g'==goal[3])//log
+{
+	for(dp = readdir(dfd); NULL!=dp; dp = readdir(dfd))
+	     {   
+	    if(strstr(dp->d_name,goal)!=NULL)
+	        	  {
+	         printf("%s\n",dp->d_name);
+				getfilename(dp->d_name,LOG_LEN);
+				
+printf("recvfile=%lf\n",searfile);
+				searfile=filenametosecond(logname,LOG_LEN);
+				printf("searfile=%lf\n",searfile);
+				
+				if(fabs(recvfile-searfile)<min)
+					{
+						min=fabs(recvfile-searfile);
+printf("min=%d\n",min);	
+						int i=0;	
+						for(i=0;i<strlen(dp->d_name);i++)
+							{
+								minlog[i]=dp->d_name[i];
+							}									
+					}
+	           }
+	      }
 }
+else{//dat
+
+for(dp = readdir(dfd); NULL!=dp; dp = readdir(dfd))
+	     {   
+	    if(strstr(dp->d_name,goal)!=NULL)
+	        	  {
+	         printf("%s\n",dp->d_name);
+				getfilename(dp->d_name,DAT_LEN);
+				
+printf("recvfile=%lf\n",recvfile);
+				searfile=filenametosecond(datname,DAT_LEN);
+				printf("searfile=%lf\n",searfile);
+				if(fabs(recvfile-searfile)<=min)
+					{
+						min=fabs(recvfile-searfile);
+printf("min=%d\n",min);	
+						int i=0;	
+						for(i=0;i<strlen(dp->d_name);i++)
+							{
+								mindat[i]=dp->d_name[i];
+							}									
+					}
+	           }
+	      }
+}
+
+}
+
+int findfile(char start[255])
+{
+	int er=0,j=0;
+	recvfile=filenametosecond(start,DAT_LEN);
+	printf("start=%c\n",start[LOG_LEN+1]);
+	if('l'==start[LOG_LEN+1])//log
+		{
+			readfilename(logpath,".log");
+			printf("lasted:%s\n",minlog);
+			min=999999999999999;
+			return strlen(minlog);
+		}
+		else//dat
+		{
+			readfilename(datpath,".dat");
+				//mindat[DAT_LEN]='\0';
+			printf("lasted:%s\n",mindat);
+				min=999999999999999;
+				return strlen(mindat);
+		}
+		
+							
+}
+

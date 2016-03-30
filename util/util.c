@@ -7,6 +7,7 @@
 #include <net/if.h>
 #include <sys/ioctl.h> 
 
+
 /*u8 g_ARR_A0[2];		//心跳间隔，初始值
 u8 g_ARR_A1[64];	//心跳帧内容初始值
 u8 g_ARR_A2[2][64];	//CAN1，设备列表
