@@ -13,6 +13,8 @@ struct uart_frame{
 	
 	u8 data[52];
 };
+#define LOG_LEN 8
+#define DAT_LEN 14
 
 int UART_Init(int fd);
 int UART_Open(int *fd, char* port);
@@ -20,6 +22,11 @@ void UART_Close(int fd);
 int UART_Init(int fd);
 void startUARTMsgListener(int UART_Fd);
 
+int findfile(char start[255]);
+void readfilename(char path[12]);
+void getfilename(char name[255],int sign);
+
+void judgefile(char data[255]);
 #define OREINTATION_R 0
 #define OREINTATION_T 1
 

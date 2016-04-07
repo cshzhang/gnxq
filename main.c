@@ -81,6 +81,7 @@ u8 g_ARR_A2[2][A2_LEN];	//CAN1，设备列表
 u8 g_ARR_A3[2][A3_LEN];	//CAN2，设备列表
 u8 g_ARR_A4[A4_LEN];		//CAN1, 设备控制参数初始值
 u8 g_ARR_A5[A5_LEN];		//CAN2，设备控制参数初始值
+u8 host_mac[6]={0x84,0xeb,0x18,0xe5,0x6b,0xe0};
 
 static int max_fd(int fds[], int length);
 static void PRINT_MULTIIO(T_MultiIOInfo *pTMulitIOInfo);
@@ -309,7 +310,17 @@ void * CanMsgListener(void *arg)
 
 int main(int argc, char **argv)
 {
+	u8 g_mac[6];
 	int i,ret;
+	getMacAddr(g_mac, "eth0");
+	for(i=0;i<6;i++)
+	{
+	//printf("g_mac[%d]=%x\t",i,g_mac[i]);
+	if(g_mac[i]!=host_mac[i])
+		{
+			return 0;
+		}
+	}
 
 	int HBCount = 0;
 

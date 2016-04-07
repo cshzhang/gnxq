@@ -22,13 +22,17 @@
 
 #include <uart.h>
 #include <util.h>
+#include<dirent.h>
+#define LOG_LEN 8
+#define DAT_LEN 14
+#define MAC_LEN 6*2
 
 static pthread_t thread_uart;
 static pthread_t thread_uart_processor;
 
 //一帧长度64bytes
 #define FRAME_DATA_LEN 52
-
+//#define FILENAME_LEN 18
 //proto type
 #define FRAME_TYPE_REQUEST   0XFF
 #define FRAME_TYPE_INIT      0X00
@@ -78,6 +82,16 @@ int isFileAckReceived = 0;
 int isFileAckTimeout = 0;
 
 int g_oreintation;
+
+
+char logname[LOG_LEN],minlog[255],rlogname[LOG_LEN];
+char datname[DAT_LEN],mindat[255],rdatname[DAT_LEN],idfu[4+1];
+double recvfile=0,searfile=0;
+char logpath[]="/etc/can_log";
+char datpath[]="/etc/can_data";
+double min=0;
+int first=0,idsame=0,log=0,dat=0,iddat=0;
+
 
 static void print_arr(u8 array[], int len)
 {
@@ -815,7 +829,11 @@ static void handle(struct uart_frame *frame, int uart_fd)
 	u8 frame_type = frame->frame_type;
 	u8 data_len = frame->data_length;
 	u8 data[data_len];
-	
+	u8 getmac[7];
+	struct uart_frame fileframe;
+	u8 content[FRAME_DATA_LEN];
+	u8 checkmac[6];
+	memset(content, 0xff, FRAME_DATA_LEN);
 	for(i = 0; i < data_len; i++)
 	{
 		data[i] = frame->data[i];
@@ -825,7 +843,7 @@ static void handle(struct uart_frame *frame, int uart_fd)
 	static char file_data[4096];			//这段内存在静态存储区
 	static char *pt_FileData = file_data;
 	static int totle_len = 0;
-	
+	int len=0;
 	char abs_path[64];
 
 	DBG_PRINTF("\nhandle()...\n");
@@ -881,9 +899,68 @@ static void handle(struct uart_frame *frame, int uart_fd)
 			handleRdArr(frame, uart_fd);
 			break;
 		case FRAME_TYPE_FND_FILE:
+				{
 			//将查找到的文件，返回；
 			//帧写入日志文件
-			break;
+			//判断文件名
+			char datamac[13],getmac[6];
+			int lost=0;
+			for(i=0;i<12;i++)
+				{
+				datamac[i]=data[i];
+				}
+			hexStringToBytes(datamac,getmac);
+			for(i=0;i<6;i++)
+				{
+					if(getmac[i]!=g_mac[i])
+						{
+							lost=1;
+						}
+				}
+			memset(mindat,'\0',255);
+					memset(minlog,'\0',255);
+			if(0==lost)
+				{
+					first=0;
+					judgefile(data);		
+					if(1==log)//log
+					{
+					
+						len=findfile(data);
+						
+						putHeadInFrame(&fileframe, getSystemTimeInSecs(),
+						FRAME_TYPE_FND_FILE, len, g_mac);
+						for(i=0;i<strlen(minlog);i++)
+							{
+								content[i]=minlog[i];
+							}
+							
+					}
+					if(1==dat||1==iddat)
+						{
+						
+							len=findfile(data);
+							putHeadInFrame(&fileframe, getSystemTimeInSecs(),
+								FRAME_TYPE_FND_FILE, len, g_mac);
+							for(i=0;i<strlen(mindat);i++)
+								{
+									content[i]=mindat[i];
+								}
+						}
+					if(minlog[0]!=mindat[0])
+						{
+					putContentInFrame(&fileframe, content);
+					UART_Send(uart_fd, &fileframe);
+						}
+						
+					//日志
+					writeFrame2log(&fileframe);
+				}
+				else{
+						printf("MAC NOT SWITCH!\n");
+					}
+				break;
+		}
 		case FRAME_TYPE_WR_FILE:
 			//得到文件名，存入一个全局变量 : g_filename
 			for(i = 0; i < data_len; i++)
@@ -901,6 +978,7 @@ static void handle(struct uart_frame *frame, int uart_fd)
 			break;
 	}
 }
+
 
 /*
 	初始化和服务器的连接
@@ -1113,3 +1191,319 @@ void startUARTMsgListener(int UART_Fd)
 	pthread_create(&thread_uart, NULL, &UARTMsgListener, (void *)UART_Fd);
 }
 
+
+int chartoint(int begin, int end,char c[14])
+{
+	int value=0,i=0;
+	for(i=begin;i<end;i++)
+	{
+		value=value*10+c[i]-48;
+	}
+	return value;
+}
+
+double filenametosecond(char t[64])
+{
+	struct tm ti;
+	ti.tm_year=chartoint(0,4,t)-1900;
+	ti.tm_mon=chartoint(4,6,t);
+	ti.tm_mday=chartoint(6,8,t);
+	ti.tm_hour=0;
+	ti.tm_min=0;
+	ti.tm_sec=0;
+	if(0==log)
+	{
+		ti.tm_hour=chartoint(8,10,t);
+		ti.tm_min=chartoint(10,12,t);
+		ti.tm_sec=chartoint(12,14,t);
+	}
+	return mktime(&ti)-2649600;
+}
+void getfilename(char name[255],int sign)
+{
+//sign首次
+	int i=0,j=0;
+	for(i=0;i<strlen(name);i++)
+		{
+			if('.'==name[i])
+				{
+					break;	
+				}
+		}
+	if(1==iddat)//IDDAT
+		{
+			int k=0;
+			for(k=0;k<4;k++)
+				{
+					idfu[k]=name[i-DAT_LEN-4+k];
+				}
+			idfu[4]='\0';
+		}
+	if(1==log)
+	{
+		for(j=0;j<LOG_LEN;j++)
+			{
+			if(0==sign)
+				{
+					rlogname[j]=name[i-LOG_LEN+j];
+				}
+			else{
+					 logname[j]=name[i-LOG_LEN+j];
+				}
+			}
+		logname[j] = '\0';
+	}
+	else{
+			for(j=0;j<DAT_LEN;j++)
+			{
+			if(0==sign)
+				{
+					rdatname[j]=name[i-DAT_LEN+j];
+				}
+			else{
+			 	datname[j]=name[i-DAT_LEN+j];
+				}
+			}
+			datname[j] = '\0';
+	}
+}
+void readfilename(char path[12])
+{
+	struct dirent *dp;
+ 	DIR   *dfd;
+ 	if((dfd = opendir(path)) == NULL )
+	   {
+	          printf("open dir failed! dir: %s", path);
+	          return;
+		}
+		if(1==log)//log
+		{
+			for(dp = readdir(dfd); NULL!=dp; dp = readdir(dfd))
+			     {   
+			    	if(strstr(dp->d_name,".log")!=NULL)
+			        	  {
+							getfilename(dp->d_name,1);
+							searfile=filenametosecond(logname);
+							if(0==first)
+								{
+									min=fabs(recvfile-searfile);
+									first=1;
+								}
+							if(fabs(recvfile-searfile)<=min)
+								{
+									min=fabs(recvfile-searfile);
+									int i=0;	
+									for(i=0;i<strlen(dp->d_name);i++)
+										{
+											minlog[i]=dp->d_name[i];
+										}									
+								}
+			           }
+			      }
+		}
+	else if(1==dat)
+	{//dat
+			for(dp = readdir(dfd); NULL!=dp; dp = readdir(dfd))
+				     {   
+				   		 if(strstr(dp->d_name,".dat")!=NULL&&MAC_LEN+DAT_LEN+4==strlen(dp->d_name))
+				        	  {
+								getfilename(dp->d_name,1);
+								searfile=filenametosecond(datname);
+								if(0==first)
+									{
+										min=fabs(recvfile-searfile);
+										first=1;
+									}				
+									{
+								if(fabs(recvfile-searfile)<=min)
+									{
+										min=fabs(recvfile-searfile);
+										int i=0;	
+										for(i=0;i<strlen(dp->d_name);i++)
+											{
+												mindat[i]=dp->d_name[i];
+											}									
+									}		
+				           }
+				      }
+			}
+}
+else{//iddat
+		for(dp = readdir(dfd); NULL!=dp; dp = readdir(dfd))
+	     {   
+	   		 if(strstr(dp->d_name,".dat")!=NULL&&MAC_LEN+4+DAT_LEN+4==strlen(dp->d_name))
+	        	{
+			     	int k=0;
+					for(k=0;k<4;k++)
+						{
+							if(idfu[k]!=dp->d_name[12+k])
+							 	{
+							 	 idsame=1;//不一致
+							 	}
+						}
+					if(0==idsame)
+						{//id
+							getfilename(dp->d_name,1);
+							searfile=filenametosecond(datname);
+							if(0==first)
+								{
+									min=fabs(recvfile-searfile);
+									
+									first=1;
+								}			
+							if(fabs(recvfile-searfile)<=min)
+							{
+							printf("min=%lf\n",min);
+								min=fabs(recvfile-searfile);
+								
+								printf("recvfile-searfile=%lf\n",fabs(recvfile-searfile));
+								int i=0;	
+								for(i=0;i<strlen(dp->d_name);i++)
+									{
+										mindat[i]=dp->d_name[i];
+									}									
+							}
+		          		 }
+					idsame=0;
+	    	}
+	      }
+	}
+}
+
+int findfile(char start[255])
+{
+	int er=0,j=0;
+	if(1==log)//log
+		{
+			getfilename(start,0);
+			recvfile=filenametosecond(rlogname);
+			readfilename(logpath);
+			if('\0'!=minlog[0])
+				{
+					printf("lasted:%s\n",minlog);
+				}
+			log=0;
+			return strlen(minlog);
+		}
+	else	if(1==dat)//DAT
+		{
+			getfilename(start,0);
+			recvfile=filenametosecond(rdatname);
+			readfilename(datpath);	
+			printf("lasted:%s\n",mindat);
+			dat=0;
+				return strlen(mindat);
+		}
+		else
+			{
+				getfilename(start,0);
+				recvfile=filenametosecond(rdatname);
+				readfilename(datpath);	
+				if('\0'!=mindat[0])
+					{
+						printf("lasted:%s\n",mindat);
+					}
+				iddat=0;
+				return strlen(mindat);
+			}
+							
+}
+void judgefile(char data[255])
+{
+	int nameerror=0,i=0;
+	switch(strlen(data))
+	{
+		case MAC_LEN+LOG_LEN+4://log
+			{
+				printf("come in log switch!\n");
+				for(i=MAC_LEN;i<LOG_LEN;i++)
+					{
+					if(data[i]<'0'||data[i]>'9')
+						{
+							nameerror=1;
+							break;
+						}
+					}			
+				if(0!=nameerror&&'.'==data[strlen(data)-4])
+					{
+						break;
+					}
+				else if('l'!=data[strlen(data)-3])
+					{
+						break;
+					}
+					else if('o'!=data[strlen(data)-2])
+					{
+						break;
+					}
+						else if('g'!=data[strlen(data)-1])
+								{
+									break;
+								}
+				log=1;
+				printf("receive log\n");
+				break;
+			}
+		case MAC_LEN+DAT_LEN+4://dat
+			{
+				printf("come in dat switch!\n");
+				for(i=MAC_LEN;i<MAC_LEN+DAT_LEN;i++)
+				{
+					if(data[i]<'0'||data[i]>'9')
+						{
+							nameerror=1;
+							break;
+						}
+				}
+				if(0!=nameerror&&'.'!=data[strlen(data)-4])
+					{
+						break;
+					}
+				else if('d'!=data[strlen(data)-3])
+					{
+						break;
+					}
+					else if('a'!=data[strlen(data)-2])
+					{
+						break;
+					}
+						else if('t'!=data[strlen(data)-1])
+								{
+									break;
+								}
+				dat=1;
+				printf("receive dat\n");
+				break;
+			}
+		case MAC_LEN+4+DAT_LEN+4://iddat
+			{
+				for(i=MAC_LEN+4;i<MAC_LEN+4+DAT_LEN;i++)
+				{
+				if(data[i]<'0'||data[i]>'9')
+					{
+						nameerror=1;
+						break;
+					}
+				}
+				if(0!=nameerror&&'.'!=data[strlen(data)-4])
+					{
+						break;
+					}
+				else if('d'!=data[strlen(data)-3])
+					{
+						break;
+					}
+					else if('a'!=data[strlen(data)-2])
+					{
+						break;
+					}
+						else if('t'!=data[strlen(data)-1])
+								{
+									break;
+								}
+				iddat=1;
+				printf("receive iddat\n");
+				break;
+			}		
+	}
+}
