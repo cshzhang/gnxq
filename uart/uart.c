@@ -714,8 +714,9 @@ static void handleRdFile(struct uart_frame *frame, int uart_fd)
 		return;
 	}
 	buf[len] = '\0';
-	DBG_PRINTF("file content:\n");
-	DBG_PRINTF("%s\n", buf);
+	DBG_PRINTF("file content len: %d\n", len);
+	//DBG_PRINTF("file content:\n");
+	//DBG_PRINTF("%s\n", buf);
 
 	//一帧的内容长度52
 	frame_resp._time = getSystemTimeInSecs();

@@ -264,7 +264,7 @@ void * CanMsgListener(void *arg)
 		pthread_mutex_lock(&g_mutex);
 		pthread_cond_wait(&g_cond, &g_mutex);
 
-		DBG_PRINTF("wake up, CAN%d collecting data now...\n", which);
+		DBG_PRINTF("wake up, CAN%d working now...\n", which);
 		
 		if(which == 1)
 		{

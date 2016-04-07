@@ -86,7 +86,7 @@ int formatDateTime(long timeL, char *buf, int buf_size)
 	min = t_tm->tm_min;
 	sec = t_tm->tm_sec;
 
-	len += snprintf(buf+len, buf_size-len, "%4d", year);
+	len += snprintf(buf+len, buf_size-len, "%04d", year);
 	len += snprintf(buf+len, buf_size-len, "%02d", mon);
 	len += snprintf(buf+len, buf_size-len, "%02d", day);
 	len += snprintf(buf+len, buf_size-len, "%02d", hour);
@@ -104,6 +104,16 @@ long getSystemTimeInSecs()
 	gettimeofday(&tv, NULL);
 
 	return tv.tv_sec;
+}
+
+/*
+	外部需要为buf分配内存空间
+	格式: yyMMddHHmmSS
+*/
+void getDateTimeInString(char *buf, int buf_size)
+{
+	long timeL = getSystemTimeInSecs();
+	formatDateTime(timeL, buf, buf_size);
 }
 
 /**
@@ -136,6 +146,76 @@ int getMacAddr(u8 res[6], char *dev_name)
 
 	return 0;
 }
+
+/*
+	根据传入的mac地址和后缀名，生成文件名，绝对路径
+	// 1.构造文件名: "aabbccddeeff20140322093010.xxx"
+*/
+int GenerateMacDateTimeFileName(char *file_name, int buf_size, 
+													u8 mac[6], char *suffix)
+{
+	int len = 0;
+	int i;
+	char buf[128] = {0};
+	
+	if(strcmp(".log", suffix) == 0){
+		len += snprintf(file_name + len, buf_size - len, "%s", CANLOG_PATH);
+	}else if(strcmp(".dat", suffix) == 0){
+		len += snprintf(file_name + len, buf_size - len, "%s", CANDATA_PATH);
+	}else{
+		DBG_PRINTF("unkown filename suffix\n");
+		return -1;
+	}
+
+	for(i = 0; i < 6; i++){
+		len += snprintf(file_name + len, buf_size - len, "%02x", mac[i]);
+	}
+	getDateTimeInString(buf, 128);
+	len += snprintf(file_name + len, buf_size - len, "%s", buf);
+
+	len += snprintf(file_name + len, buf_size - len, "%s", suffix);
+
+	file_name[len++] = '\0';
+
+	return 0;
+}
+
+/*
+	根据传入的mac地址和后缀名，生成文件名，绝对路径
+*/
+int GenerateMacCanidFnDateTimeFileName(char *file_name, int buf_size, 
+				u8 can_id, u8 fn, u8 mac[6], char *suffix)
+{
+	int len = 0;
+	int i;
+	char buf[128] = {0};
+	
+	if(strcmp(".log", suffix) == 0){
+		len += snprintf(file_name + len, buf_size - len, "%s", CANLOG_PATH);
+	}else if(strcmp(".dat", suffix) == 0){
+		len += snprintf(file_name + len, buf_size - len, "%s", CANDATA_PATH);
+	}else{
+		DBG_PRINTF("unkown filename suffix\n");
+		return -1;
+	}
+
+	for(i = 0; i < 6; i++){
+		len += snprintf(file_name + len, buf_size - len, "%02x", mac[i]);
+	}
+	
+	len += snprintf(file_name + len, buf_size - len, "%02x", can_id);
+	len += snprintf(file_name + len, buf_size - len, "%02x", fn);
+	
+	getDateTimeInString(buf, 128);
+	len += snprintf(file_name + len, buf_size - len, "%s", buf);
+
+	len += snprintf(file_name + len, buf_size - len, "%s", suffix);
+
+	file_name[len++] = '\0';
+
+	return 0;
+}
+
 
 char *strlwr(char *s)
 {
