@@ -23,10 +23,10 @@ int UART_Init(int fd);
 void startUARTMsgListener(int UART_Fd);
 
 int findfile(char start[255]);
-void readfilename(char path[12],char goal[4]);
-void getfilename(char name[255],int data_len);
+void readfilename(char path[12]);
+void getfilename(char name[255],int sign);
 
-
+void judgefile(char data[255]);
 #define OREINTATION_R 0
 #define OREINTATION_T 1
 
